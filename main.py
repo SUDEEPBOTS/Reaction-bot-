@@ -1,8 +1,8 @@
 import asyncio
 import random
-from pyrogram import Client, filters, enums, idle # Added 'idle' here
+from pyrogram import Client, filters, enums, idle
 from pyrogram.types import Message
-from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID
+from config import API_ID, API_HASH, BOT_TOKEN
 
 # Import DB Functions
 from database import (
@@ -10,10 +10,10 @@ from database import (
     get_bot_emoji, set_random_mode, is_random_on
 )
 
+# Owner Check Hata Diya Hai
 app = Client("ManagerBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 CLONE_CLIENTS = {} 
 
-# --- SMALL CAPS FUNCTION ---
 def smcp(text):
     mapping = {
         'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ',
@@ -28,16 +28,23 @@ def smcp(text):
 
 RANDOM_EMOJIS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🎉", "🤩", "⚡️", "🍓", "🚀", "🏆"]
 
-# --- 1. CLONE DM HANDLER ---
+# --- 1. CLONE DM HANDLER (NO OWNER CHECK) ---
 async def clone_msg_handler(client, message: Message):
+    # Ab koi bhi user /set use kar sakta hai cloned bot ke DM me
     if message.text and message.text.startswith("/set"):
-        if message.from_user.id != OWNER_ID:
-            return
         try:
-            emoji = message.text.split(None, 1)[1].strip()
+            if " " in message.text:
+                emoji = message.text.split(None, 1)[1].strip()
+            else:
+                emoji = message.text.replace("/set", "").strip()
+            
+            if not emoji:
+                await message.reply(f"{smcp('Usage')}: `/set 🔥`")
+                return
+
             await set_bot_emoji(client.me.id, emoji)
             await message.reply(f"✅ <b>{smcp('Personal Emoji Updated')}:</b> {emoji}", parse_mode=enums.ParseMode.HTML)
-        except:
+        except Exception as e:
             await message.reply(f"{smcp('Usage')}: `/set 🔥`")
 
 # --- 2. START CLONE ---
@@ -56,8 +63,14 @@ async def start_clone(token):
         print(f"Error starting clone: {e}")
         return None
 
-# --- 3. MANAGER COMMANDS ---
-@app.on_message(filters.command("clone") & filters.user(OWNER_ID))
+# --- 3. MANAGER COMMANDS (NO OWNER CHECK) ---
+
+@app.on_message(filters.command("start"))
+async def start_cmd(client, message):
+    # Simple Alive Message
+    await message.reply(f"👋 <b>{smcp('Manager Bot is Alive')}!</b>\n\n🆔 <b>ID:</b> <code>{message.from_user.id}</code>", parse_mode=enums.ParseMode.HTML)
+
+@app.on_message(filters.command("clone"))
 async def clone_cmd(client, message):
     if len(message.command) < 2:
         return await message.reply(f"{smcp('Usage')}: `/clone [TOKEN]`")
@@ -125,5 +138,5 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(boot())
     print("🔥 Manager Bot Live!")
-    loop.run_until_complete(idle()) # Fixed: Using pyrogram.idle correctly
+    loop.run_until_complete(idle())
     app.stop()
