@@ -1,6 +1,6 @@
 import asyncio
 import random
-import logging # Naya: Logging Import
+import logging
 from pyrogram import Client, filters, enums, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN
@@ -12,7 +12,7 @@ from database import (
     remove_clone
 )
 
-# --- DEBUGGING SETUP (Ye Error Dikhayega) ---
+# --- DEBUGGING SETUP ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -37,33 +37,24 @@ def smcp(text):
 
 RANDOM_EMOJIS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🎉", "🤩", "⚡️", "🍓", "🚀", "🏆"]
 
-# --- UNIVERSAL REACTION ENGINE (DEBUG VERSION) ---
+# --- UNIVERSAL REACTION ENGINE ---
 async def universal_reaction_logic(client, message):
     try:
         chat_id = message.chat.id
         msg_id = message.id
         bot_id = client.me.id
         
-        # Log 1: Message Detection
-        # logger.info(f"Bot {bot_id} saw message {msg_id} in Chat {chat_id}")
-
         # Check Random Mode
         if await is_random_on(chat_id):
             emoji = random.choice(RANDOM_EMOJIS)
         else:
             emoji = await get_bot_emoji(bot_id)
             
-        # Log 2: Attempting Reaction
-        # logger.info(f"Bot {bot_id} attempting reaction {emoji} on msg {msg_id}")
-
         await client.send_reaction(chat_id, msg_id, emoji)
-        
-        # Log 3: Success
-        logger.info(f"✅ Success: Bot {client.me.first_name} reacted {emoji} in {message.chat.title}")
+        logger.info(f"✅ Bot {client.me.first_name} reacted {emoji} in {message.chat.title}")
 
     except Exception as e:
-        # Log 4: ERROR REVEALED
-        logger.error(f"❌ REACTION FAILED for Bot {client.me.first_name}: {e}")
+        logger.error(f"❌ Reaction Failed for {client.me.first_name}: {e}")
 
 # --- HANDLERS ---
 
@@ -179,13 +170,19 @@ async def toggle_random(client, message):
 async def manager_auto_react(client, message):
     await universal_reaction_logic(client, message)
 
-# --- MAIN ---
+# --- MAIN (CRASH FIX IS HERE) ---
 async def boot():
     logger.info("🔄 Loading Saved Clones...")
     clones = await get_all_clones()
     count = 0
     for c in clones:
-        if await start_clone(c['token']):
+        # CRASH FIX: Check if token exists
+        token = c.get('token')
+        if not token:
+            logger.warning(f"⚠️ Skipping corrupted clone: {c.get('bot_id', 'Unknown')}")
+            continue
+            
+        if await start_clone(token):
             count += 1
     logger.info(f"🚀 {count} Clones Live!")
 
