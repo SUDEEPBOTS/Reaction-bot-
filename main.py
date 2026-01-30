@@ -1,6 +1,6 @@
 import asyncio
 import random
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters, enums, idle # Added 'idle' here
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID
 
@@ -125,6 +125,5 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(boot())
     print("🔥 Manager Bot Live!")
-    import idle
-    idle()
-  
+    loop.run_until_complete(idle()) # Fixed: Using pyrogram.idle correctly
+    app.stop()
