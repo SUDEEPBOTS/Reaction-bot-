@@ -2,7 +2,7 @@ import asyncio
 import random
 from pyrogram import Client, filters, enums, idle
 from pyrogram.types import Message
-from config import API_ID, API_HASH, BOT_TOKEN
+from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID
 
 # Import DB Functions
 from database import (
@@ -10,10 +10,11 @@ from database import (
     get_bot_emoji, set_random_mode, is_random_on
 )
 
-# Owner Check Hata Diya Hai
+# Initialize Bot
 app = Client("ManagerBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 CLONE_CLIENTS = {} 
 
+# --- SMALL CAPS FUNCTION ---
 def smcp(text):
     mapping = {
         'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ',
@@ -28,9 +29,8 @@ def smcp(text):
 
 RANDOM_EMOJIS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🎉", "🤩", "⚡️", "🍓", "🚀", "🏆"]
 
-# --- 1. CLONE DM HANDLER (NO OWNER CHECK) ---
+# --- 1. CLONE DM HANDLER ---
 async def clone_msg_handler(client, message: Message):
-    # Ab koi bhi user /set use kar sakta hai cloned bot ke DM me
     if message.text and message.text.startswith("/set"):
         try:
             if " " in message.text:
@@ -63,11 +63,10 @@ async def start_clone(token):
         print(f"Error starting clone: {e}")
         return None
 
-# --- 3. MANAGER COMMANDS (NO OWNER CHECK) ---
+# --- 3. MANAGER COMMANDS ---
 
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message):
-    # Simple Alive Message
     await message.reply(f"👋 <b>{smcp('Manager Bot is Alive')}!</b>\n\n🆔 <b>ID:</b> <code>{message.from_user.id}</code>", parse_mode=enums.ParseMode.HTML)
 
 @app.on_message(filters.command("clone"))
@@ -123,7 +122,7 @@ async def auto_react(client, message):
         except:
             pass
 
-# --- BOOTUP ---
+# --- BOOTUP LOGIC (FIXED) ---
 async def boot():
     print("🔄 Loading Saved Clones...")
     clones = await get_all_clones()
@@ -133,10 +132,14 @@ async def boot():
             count += 1
     print(f"🚀 {count} Clones Live!")
 
-if __name__ == "__main__":
-    app.start()
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(boot())
+# --- MAIN ASYNC LOOP (CRASH FIX) ---
+async def main():
+    await app.start()
+    await boot()
     print("🔥 Manager Bot Live!")
-    loop.run_until_complete(idle())
-    app.stop()
+    await idle()
+    await app.stop()
+
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
