@@ -2,4 +2,3 @@ pyrogram
 tgcrypto
 pymongo
 dnspython
-idle
