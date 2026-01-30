@@ -2,20 +2,19 @@ import asyncio
 import random
 from pyrogram import Client, filters, enums, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from config import API_ID, API_HASH, BOT_TOKEN
+from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID
 
 # Import DB Functions
 from database import (
     add_clone, get_all_clones, set_bot_emoji, 
     get_bot_emoji, set_random_mode, is_random_on,
-    remove_clone # Added remove_clone here
+    remove_clone
 )
 
 # Initialize Manager Bot
 app = Client("ManagerBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 CLONE_CLIENTS = {} 
 
-# --- SMALL CAPS FUNCTION ---
 def smcp(text):
     mapping = {
         'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ',
@@ -30,10 +29,28 @@ def smcp(text):
 
 RANDOM_EMOJIS = ["👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🎉", "🤩", "⚡️", "🍓", "🚀", "🏆"]
 
-# --- 1. CLONE HANDLERS (DM & START) ---
+# --- UNIVERSAL REACTION ENGINE (Used by BOTH Manager & Clones) ---
+async def universal_reaction_logic(client, message):
+    try:
+        chat_id = message.chat.id
+        # Check Random Mode
+        if await is_random_on(chat_id):
+            emoji = random.choice(RANDOM_EMOJIS)
+        else:
+            # Get specific emoji for THIS bot (Manager or Clone)
+            emoji = await get_bot_emoji(client.me.id)
+            
+        await client.send_reaction(chat_id, message.id, emoji)
+    except Exception as e:
+        # Ignore errors (like missing permissions)
+        pass
 
-# Handler for /set command in Clone DM
-async def clone_msg_handler(client, message: Message):
+# --- HANDLERS ---
+
+# 1. SET EMOJI HANDLER (DM)
+async def set_emoji_handler(client, message: Message):
+    # Owner check removed so anyone can config their clone, 
+    # OR you can add filters.user(OWNER_ID) back if you want strict control.
     if message.text and message.text.startswith("/set"):
         try:
             if " " in message.text:
@@ -50,15 +67,15 @@ async def clone_msg_handler(client, message: Message):
         except Exception as e:
             await message.reply(f"{smcp('Usage')}: `/set 🔥`")
 
-# Handler for /start command in Clone DM (Welcome + Button)
-async def clone_start_handler(client, message: Message):
+# 2. START HANDLER (DM - Welcome + Add Button)
+async def start_handler(client, message: Message):
     bot_name = client.me.first_name
     bot_username = client.me.username
     
     txt = (
         f"👋 <b>{smcp('Hello')}! {smcp('I am')} {bot_name}</b>\n\n"
         f"🤖 {smcp('I am a Reaction Bot.')}\n"
-        f"✨ {smcp('Add me to your group and I will react to messages!')}\n\n"
+        f"✨ {smcp('Add me to your group/channel as Admin!')}\n\n"
         f"⚙️ <b>{smcp('Settings')}:</b>\n"
         f"👉 `/set 🔥` ({smcp('Set my reaction')})"
     )
@@ -69,20 +86,21 @@ async def clone_start_handler(client, message: Message):
     
     await message.reply(txt, reply_markup=btn, parse_mode=enums.ParseMode.HTML)
 
-# --- 2. START CLONE FUNCTION ---
+# --- START CLONE FUNCTION ---
 async def start_clone(token):
     try:
         cl = Client(f"clone_{token[:10]}", api_id=API_ID, api_hash=API_HASH, bot_token=token, in_memory=True)
         
-        # Add Handler: /set
+        # Attach Handlers to Clone
         @cl.on_message(filters.private & filters.command("set"))
-        async def internal_set_handler(c, m):
-            await clone_msg_handler(c, m)
+        async def _set(c, m): await set_emoji_handler(c, m)
 
-        # Add Handler: /start (Welcome Message)
         @cl.on_message(filters.private & filters.command("start"))
-        async def internal_start_handler(c, m):
-            await clone_start_handler(c, m)
+        async def _start(c, m): await start_handler(c, m)
+
+        # Clone watches Group/Channel for reactions
+        @cl.on_message(filters.channel | filters.group)
+        async def _react(c, m): await universal_reaction_logic(c, m)
 
         await cl.start()
         CLONE_CLIENTS[cl.me.id] = cl
@@ -91,11 +109,17 @@ async def start_clone(token):
         print(f"Error starting clone: {e}")
         return None
 
-# --- 3. MANAGER COMMANDS ---
+# --- MANAGER COMMANDS ---
 
-@app.on_message(filters.command("start"))
-async def start_cmd(client, message):
-    await message.reply(f"👋 <b>{smcp('Manager Bot is Alive')}!</b>\n\n🆔 <b>ID:</b> <code>{message.from_user.id}</code>", parse_mode=enums.ParseMode.HTML)
+# Manager ka apna Start Handler
+@app.on_message(filters.private & filters.command("start"))
+async def manager_start(client, message):
+    await start_handler(client, message)
+
+# Manager ka apna Set Handler
+@app.on_message(filters.private & filters.command("set"))
+async def manager_set(client, message):
+    await set_emoji_handler(client, message)
 
 @app.on_message(filters.command("clone"))
 async def clone_cmd(client, message):
@@ -119,7 +143,6 @@ async def clone_cmd(client, message):
     else:
         await msg.edit(f"❌ <b>{smcp('Failed to clone. Invalid Token.')}</b>", parse_mode=enums.ParseMode.HTML)
 
-# NEW: Remove Command
 @app.on_message(filters.command("remove"))
 async def remove_bot_cmd(client, message):
     if len(message.command) < 2:
@@ -132,7 +155,6 @@ async def remove_bot_cmd(client, message):
 
     msg = await message.reply(f"🗑 <b>{smcp('Removing Bot')}...</b>", parse_mode=enums.ParseMode.HTML)
 
-    # 1. Stop the client if running
     if bot_id in CLONE_CLIENTS:
         try:
             await CLONE_CLIENTS[bot_id].stop()
@@ -140,9 +162,7 @@ async def remove_bot_cmd(client, message):
         except Exception as e:
             print(f"Error stopping client: {e}")
 
-    # 2. Remove from DB
     await remove_clone(bot_id)
-    
     await msg.edit(f"✅ <b>{smcp('Bot Removed Successfully')}!</b>", parse_mode=enums.ParseMode.HTML)
 
 @app.on_message(filters.command("random") & filters.group)
@@ -158,23 +178,11 @@ async def toggle_random(client, message):
         await set_random_mode(message.chat.id, False)
         await message.reply(f"🤖 <b>{smcp('Random Mode')}: OFF</b>\n{smcp('Bots will use their personal emojis.')}", parse_mode=enums.ParseMode.HTML)
 
-# --- 4. AUTO REACTION ---
+# --- MANAGER WATCHER (Manager Khud React Karega) ---
 @app.on_message(filters.channel | filters.group)
-async def auto_react(client, message):
-    chat_id = message.chat.id
-    random_enabled = await is_random_on(chat_id)
-
-    for bot_id, clone in CLONE_CLIENTS.items():
-        try:
-            if random_enabled:
-                emoji = random.choice(RANDOM_EMOJIS)
-            else:
-                emoji = await get_bot_emoji(bot_id)
-            
-            await clone.send_reaction(chat_id, message.id, emoji)
-            await asyncio.sleep(0.3)
-        except:
-            pass
+async def manager_auto_react(client, message):
+    # Manager bhi wahi logic use karega jo Clones karte hain
+    await universal_reaction_logic(client, message)
 
 # --- BOOTUP LOGIC ---
 async def boot():
