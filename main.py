@@ -6,15 +6,15 @@ from pyrogram import Client, filters, enums, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from config import API_ID, API_HASH, BOT_TOKEN
 
-# Import DB Functions (Removed set/get emoji functions)
+# Import DB Functions
 from database import (
     add_clone, get_all_clones, remove_clone
 )
 
-# --- DEBUGGING SETUP ---
+# --- ULTRA DEBUGGING SETUP ---
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="[%(levelname)s] %(message)s"
 )
 logger = logging.getLogger("ReactionBot")
 
@@ -22,9 +22,13 @@ logger = logging.getLogger("ReactionBot")
 app = Client("ManagerBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 CLONE_CLIENTS = {} 
 
-# GLOBAL CACHE TO PREVENT DUPLICATE REACTIONS
-# Format: { "chat_id:msg_id": {"🔥", "❤️"} }
+# GLOBAL CACHE
 USED_EMOJIS_CACHE = {}
+RANDOM_EMOJIS = [
+    "👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🎉", 
+    "🤩", "⚡️", "🍓", "🚀", "🏆", "👻", "👀", "🍌", "🌚", "💔",
+    "💯", "💩", "🤮", "🍾", "🐳", "🎃", "👺", "🤡", "😇", "🤝"
+]
 
 def smcp(text):
     mapping = {
@@ -38,155 +42,138 @@ def smcp(text):
     }
     return "".join(mapping.get(c, c) for c in text)
 
-# Expanded Emoji List for variety
-RANDOM_EMOJIS = [
-    "👍", "❤️", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🎉", 
-    "🤩", "⚡️", "🍓", "🚀", "🏆", "👻", "👀", "🍌", "🌚", "💔",
-    "💯", "💩", "🤮", "🍾", "🐳", "🎃", "👺", "🤡", "😇", "🤝"
-]
-
-# --- CLEANUP TASK ---
-# Ye function purane messages ka cache clear karega taaki RAM na bhare
+# --- CACHE CLEANUP ---
 async def cache_cleanup():
     while True:
-        try:
-            current_time = time.time()
-            # Keys are "chat_id:msg_id:timestamp"
-            # We need a complex structure or just clear everything every 10 mins
-            # Simple approach: Clear all cache every 5 minutes (old msgs dont need unique checks)
-            USED_EMOJIS_CACHE.clear()
-            # logger.info("🧹 Cache Cleared")
-            await asyncio.sleep(300) # 5 Minutes
-        except:
-            await asyncio.sleep(60)
+        await asyncio.sleep(300) # 5 Mins
+        USED_EMOJIS_CACHE.clear()
+        # logger.info("🧹 Cache Cleared")
 
-# --- UNIQUE REACTION LOGIC ---
-async def unique_reaction_logic(client, message):
+# --- CORE REACTION LOGIC (DEBUGGED) ---
+async def react_everywhere(client, message):
     try:
+        # 1. Log Incoming
         chat_id = message.chat.id
         msg_id = message.id
-        unique_key = f"{chat_id}:{msg_id}"
+        bot_name = client.me.first_name
+        
+        # logger.info(f"📥 {bot_name} saw msg in {chat_id}")
 
-        # Initialize cache set for this message if not exists
+        # 2. Unique Key & Logic
+        unique_key = f"{chat_id}:{msg_id}"
         if unique_key not in USED_EMOJIS_CACHE:
             USED_EMOJIS_CACHE[unique_key] = set()
 
-        # Find emojis that are NOT used yet
-        available_emojis = [e for e in RANDOM_EMOJIS if e not in USED_EMOJIS_CACHE[unique_key]]
-
-        if not available_emojis:
-            # If all emojis used, pick random (fallback)
+        # 3. Pick Unique Emoji
+        available = [e for e in RANDOM_EMOJIS if e not in USED_EMOJIS_CACHE[unique_key]]
+        if not available:
             emoji = random.choice(RANDOM_EMOJIS)
         else:
-            # Pick a unique one
-            emoji = random.choice(available_emojis)
+            emoji = random.choice(available)
         
-        # Mark this emoji as used IMMEDIATELY
+        # Lock Emoji
         USED_EMOJIS_CACHE[unique_key].add(emoji)
-            
+
+        # 4. Small Delay (To prevent race conditions)
+        await asyncio.sleep(random.uniform(0.1, 0.5))
+
+        # 5. EXECUTE REACTION
         await client.send_reaction(chat_id, msg_id, emoji)
-        logger.info(f"✅ {client.me.first_name} -> {emoji}")
+        logger.info(f"✅ SUCCESS: {bot_name} -> {emoji} in {chat_id}")
 
     except Exception as e:
-        # logger.error(f"❌ Reaction Failed: {e}")
-        pass
+        # ERROR LOGGING
+        err = str(e)
+        if "PEER_ID_INVALID" in err:
+            logger.error(f"❌ {bot_name}: Bot not in chat or kicked.")
+        elif "CHAT_ADMIN_REQUIRED" in err:
+            logger.error(f"❌ {bot_name}: Need Admin Rights (Add as Admin).")
+        elif "REACTION_INVALID" in err:
+            logger.error(f"❌ {bot_name}: Invalid Emoji (Telegram rejected it).")
+        else:
+            logger.error(f"❌ {bot_name} Error: {err}")
 
-# --- HANDLERS ---
-
+# --- STARTUP HANDLER ---
 async def start_handler(client, message: Message):
+    # React first!
+    await react_everywhere(client, message)
+    
+    # Then reply
     bot_name = client.me.first_name
     bot_username = client.me.username
     txt = (
         f"👋 <b>{smcp('Hello')}! {smcp('I am')} {bot_name}</b>\n\n"
-        f"🤖 {smcp('I am a Smart Reaction Bot.')}\n"
-        f"✨ {smcp('Add me to your group, and I will give UNIQUE reactions!')}\n"
+        f"✨ {smcp('I will react to EVERYTHING!')}\n"
+        f"➡️ {smcp('Just add me to Groups/Channels.')}"
     )
-    btn = InlineKeyboardMarkup([[InlineKeyboardButton(text=f"➕ {smcp('Add Me To Your Group')}", url=f"https://t.me/{bot_username}?startgroup=true")]])
+    btn = InlineKeyboardMarkup([[InlineKeyboardButton(text=f"➕ {smcp('Add Me')}", url=f"https://t.me/{bot_username}?startgroup=true")]])
     await message.reply(txt, reply_markup=btn, parse_mode=enums.ParseMode.HTML)
 
-# --- START CLONE FUNCTION ---
+# --- CLONE BOOTER ---
 async def start_clone(token):
     try:
         cl = Client(f"clone_{token[:10]}", api_id=API_ID, api_hash=API_HASH, bot_token=token, in_memory=True)
         
-        # Start Handler
+        # 1. /start Handler (DM)
         @cl.on_message(filters.private & filters.command("start"))
         async def _start(c, m): await start_handler(c, m)
 
-        # Unique Reaction Watcher
-        @cl.on_message(filters.channel | filters.group)
-        async def _react(c, m): await unique_reaction_logic(c, m)
+        # 2. UNIVERSAL REACTION WATCHER (Reacts to EVERYTHING: DMs, Groups, Channels)
+        # filters.incoming ensures we don't react to our own sent messages
+        @cl.on_message(filters.incoming & ~filters.service) 
+        async def _react(c, m): await react_everywhere(c, m)
 
         await cl.start()
         CLONE_CLIENTS[cl.me.id] = cl
+        logger.info(f"🤖 Clone Online: {cl.me.first_name}")
         return cl.me
     except Exception as e:
-        logger.error(f"Clone Start Error: {e}")
+        logger.error(f"⚠️ Clone Boot Failed: {e}")
         return None
 
 # --- MANAGER COMMANDS ---
 
-@app.on_message(filters.private & filters.command("start"))
-async def manager_start(client, message): await start_handler(client, message)
+# Manager Reaction Watcher
+@app.on_message(filters.incoming & ~filters.service & ~filters.command(["clone", "remove", "clean"]))
+async def manager_react_watcher(client, message):
+    await react_everywhere(client, message)
 
 @app.on_message(filters.command("clone"))
 async def clone_cmd(client, message):
-    if len(message.command) < 2:
-        return await message.reply(f"{smcp('Usage')}: `/clone [TOKEN]`")
+    if len(message.command) < 2: return await message.reply("Usage: `/clone [TOKEN]`")
     token = message.text.split(None, 1)[1].strip()
-    msg = await message.reply(f"⚙️ <b>{smcp('Cloning Bot')}...</b>", parse_mode=enums.ParseMode.HTML)
-    
+    msg = await message.reply("⚙️ <b>Processing...</b>")
     bot_info = await start_clone(token)
-    
     if bot_info:
         await add_clone(token, bot_info.id, bot_info.first_name)
-        txt = (f"✅ <b>{smcp('Bot Cloned Successfully')}!</b>\n\n🤖 <b>{smcp('Name')}:</b> {bot_info.first_name}\n🆔 <b>ID:</b> <code>{bot_info.id}</code>")
-        await msg.edit(txt, parse_mode=enums.ParseMode.HTML)
+        await msg.edit(f"✅ <b>{bot_info.first_name} Cloned!</b>")
     else:
-        await msg.edit(f"❌ <b>{smcp('Failed to clone.')}</b>", parse_mode=enums.ParseMode.HTML)
+        await msg.edit("❌ <b>Invalid Token</b>")
 
 @app.on_message(filters.command("remove"))
-async def remove_bot_cmd(client, message):
-    if len(message.command) < 2:
-        return await message.reply(f"{smcp('Usage')}: `/remove [BOT_ID]`")
+async def remove_cmd(client, message):
     try:
         bot_id = int(message.text.split(None, 1)[1].strip())
-    except:
-        return await message.reply(f"❌ <b>{smcp('Invalid Bot ID')}!</b>", parse_mode=enums.ParseMode.HTML)
-    
-    msg = await message.reply(f"🗑 <b>{smcp('Removing Bot')}...</b>", parse_mode=enums.ParseMode.HTML)
-    if bot_id in CLONE_CLIENTS:
-        try:
+        if bot_id in CLONE_CLIENTS:
             await CLONE_CLIENTS[bot_id].stop()
             del CLONE_CLIENTS[bot_id]
-        except Exception as e:
-            logger.error(f"Stop Error: {e}")
-    await remove_clone(bot_id)
-    await msg.edit(f"✅ <b>{smcp('Bot Removed Successfully')}!</b>", parse_mode=enums.ParseMode.HTML)
+        await remove_clone(bot_id)
+        await message.reply("✅ <b>Removed!</b>")
+    except:
+        await message.reply("Usage: `/remove [BOT_ID]`")
 
-# --- MANAGER WATCHER ---
-@app.on_message(filters.channel | filters.group)
-async def manager_auto_react(client, message):
-    await unique_reaction_logic(client, message)
-
-# --- BOOT ---
+# --- MAIN ---
 async def boot():
-    logger.info("🔄 Loading Saved Clones...")
+    logger.info("---------- STARTING MANAGER ----------")
     clones = await get_all_clones()
-    count = 0
     for c in clones:
-        token = c.get('token')
-        if not token: continue
-        if await start_clone(token): count += 1
-    logger.info(f"🚀 {count} Clones Live!")
-    
-    # Start Cache Cleanup Task
+        if c.get('token'): await start_clone(c['token'])
     asyncio.create_task(cache_cleanup())
 
 async def main():
     await app.start()
     await boot()
-    logger.info("🔥 Manager Bot Live!")
+    logger.info("🔥 SYSTEM READY - WAITING FOR MESSAGES")
     await idle()
     await app.stop()
 
